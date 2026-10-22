@@ -1,0 +1,283 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ERP Activity Dashboard - Supabase Edition</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F4F1; --surface:#FFFFFF; --surface2:#E8EDE9; --ink:#14221B; --muted:#586A5F; --line:#D3DCD5;
+  --accent:#17694B; --accent-ink:#FFFFFF; --accent-soft:#D8EEE3;
+  --warn:#9A5A00; --warn-bg:#FBEBCF; --bad:#A93428; --bad-bg:#F8DDD9;
+  --c1:#2F7D6B; --c2:#3D6FB5; --c3:#8A5CB8; --c4:#C2652F; --c5:#B58A1F; --c6:#5E8C2F; --c7:#7A8790; --c0:#C3CBC6;
+  --f-head:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;padding:20px 16px 40px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1,h2,h3{font-family:var(--f-head);margin:0;font-weight:600}
+h1{font-size:30px;line-height:1.1}
+h2{font-size:20px}
+h3{font-size:16px}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500}
+header.top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-end;justify-content:space-between}
+.tabs{display:inline-flex;background:var(--surface2);border-radius:10px;padding:3px;gap:2px}
+.tabs button{border:0;background:transparent;padding:8px 16px;border-radius:8px;font-weight:500;color:var(--muted)}
+.tabs button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+.btn{border:1px solid var(--line);background:var(--surface);padding:10px 16px;border-radius:10px;font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--muted);padding:6px 8px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field input,.field select{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px}
+.stack{display:flex;flex-direction:column;gap:20px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>.field{flex:1 1 180px}
+.dot{width:12px;height:12px;border-radius:4px;flex:none;background:var(--c0)}
+.k1{background:var(--c1)}.k2{background:var(--c2)}.k3{background:var(--c3)}.k4{background:var(--c4)}.k5{background:var(--c5)}.k6{background:var(--c6)}.k7{background:var(--c7)}
+.totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:760px){.totals{grid-template-columns:repeat(1,minmax(0,1fr))}}
+.tot{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px}
+.tot b{font-family:var(--f-head);font-size:32px;line-height:1}
+.tot small{color:var(--muted)}
+.track{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;margin-top:4px}
+.track i{display:block;height:100%;border-radius:6px}
+.wrow{display:grid;grid-template-columns:150px minmax(0,1fr) 100px;gap:6px 12px;align-items:center;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<!-- Auth Overlay -->
+<div id="auth-overlay" class="wrap" style="max-width:400px; margin-top:80px;">
+  <div class="panel stack">
+    <h2>Dashboard Sign In</h2>
+    <p class="muted">Sign in with your Supabase account (MD or HR).</p>
+    <form id="login-form" class="stack">
+      <div class="field"><label class="label">Email</label><input type="email" id="email" required></div>
+      <div class="field"><label class="label">Password</label><input type="password" id="password" required></div>
+      <button type="submit" class="btn primary">Sign In</button>
+      <p id="auth-err" class="muted" style="color:var(--bad); display:none;"></p>
+    </form>
+  </div>
+</div>
+
+<!-- Main App Container -->
+<div class="wrap" id="app" style="display:none;"></div>
+
+<script>
+(function(){
+  "use strict";
+  const SUPABASE_URL = 'https://xsjwmqmdbrfpkhpnodsu.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_PPogPICjnAHv5dz-_G-MDw_sRzgGhUe';
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentUser = null;
+  let currentTab = 'dash';
+  let timeFrame = 'week'; // default timeframe: day, week, month, year
+  let eventsData = [];
+
+  const TASKS = [
+    {n:"Fuel receipts",c:1},{n:"Invoices",c:2},{n:"Requisitions",c:3},{n:"HR records",c:4},
+    {n:"Stock variances",c:5},{n:"Payroll entries",c:6},{n:"Other ERP work",c:7},{n:"Break",c:0}
+  ];
+  const TMAP = {}; TASKS.forEach(t => TMAP[t.n] = t);
+
+  async function init() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+      currentUser = session.user;
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      loadEvents();
+      subscribeRealtime();
+    }
+  }
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      const errEl = document.getElementById('auth-err');
+      errEl.textContent = error.message;
+      errEl.style.display = 'block';
+    } else {
+      location.reload();
+    }
+  });
+
+  async function loadEvents() {
+    const { data, error } = await supabaseClient.from('events').select('*').order('ts', { ascending: false });
+    if (!error && data) {
+      eventsData = data;
+      render();
+    }
+  }
+
+  function subscribeRealtime() {
+    supabaseClient.channel('public:events')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+        loadEvents();
+      })
+      .subscribe();
+  }
+
+  // Filter events based on selected timeframe
+  function getFilteredEvents() {
+    const now = new Date();
+    return eventsData.filter(ev => {
+      const evDate = new Date(ev.ts);
+      if (timeFrame === 'day') {
+        return evDate.toDateString() === now.toDateString();
+      } else if (timeFrame === 'week') {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        return evDate >= weekAgo;
+      } else if (timeFrame === 'month') {
+        return evDate.getMonth() === now.getMonth() && evDate.getFullYear() === now.getFullYear();
+      } else if (timeFrame === 'year') {
+        return evDate.getFullYear() === now.getFullYear();
+      }
+      return true;
+    });
+  }
+
+  function render() {
+    const app = document.getElementById('app');
+    const filtered = getFilteredEvents();
+    
+    let h = `<header class="top"><div class="brand"><h1>ERP Activity Dashboard</h1><p>Managing Director Analytics & Patterns</p></div>
+      <div class="tabs">
+        <button data-act="tab" data-t="dash" aria-pressed="${currentTab==='dash'}">MD Board</button>
+        <button data-act="tab" data-t="staff" aria-pressed="${currentTab==='staff'}">Staff Simulator</button>
+      </div>
+      <button class="btn quiet" data-act="logout">Sign Out</button></header>`;
+
+    if (currentTab === 'dash') {
+      // Timeframe selection buttons
+      h += `<div class="row" style="justify-content:space-between; align-items:center;">
+        <div class="tabs">
+          <button data-tf="day" aria-pressed="${timeFrame==='day'}">Today</button>
+          <button data-tf="week" aria-pressed="${timeFrame==='week'}">This Week</button>
+          <button data-tf="month" aria-pressed="${timeFrame==='month'}">This Month</button>
+          <button data-tf="year" aria-pressed="${timeFrame==='year'}">This Year</button>
+        </div>
+        <span class="muted mono">Showing ${filtered.length} records for ${timeFrame}</span>
+      </div>`;
+
+      let uniquePeople = [...new Set(filtered.map(e => e.person))].length;
+      let taskCounts = {};
+      filtered.forEach(ev => {
+        taskCounts[ev.activity] = (taskCounts[ev.activity] || 0) + 1;
+      });
+
+      h += `<div class="totals">
+        <div class="tot"><span class="label">Total Actions</span><b>${filtered.length}</b><small>in selected period</small></div>
+        <div class="tot"><span class="label">Active Staff</span><b>${uniquePeople}</b><small>unique workers</small></div>
+        <div class="tot"><span class="label">Most Active Task</span><b>${Object.keys(taskCounts).sort((a,b)=>taskCounts[b]-taskCounts[a])[0] || 'None'}</b><small>top workflow</small></div>
+      </div>`;
+
+      // Visual pattern bars (Where time/effort went)
+      h += `<div class="panel"><h2>Work Patterns & Task Distribution (${timeFrame.toUpperCase()})</h2><div style="margin-top:16px;">`;
+      const maxCount = Math.max(...Object.values(taskCounts), 1);
+      
+      if (Object.keys(taskCounts).length === 0) {
+        h += `<p class="muted">No activity recorded for this period.</p>`;
+      } else {
+        for (const [taskName, count] of Object.entries(taskCounts)) {
+          const tObj = TMAP[taskName] || { c: 0 };
+          const pct = (count / maxCount) * 100;
+          h += `<div class="wrow">
+            <span class="wl"><span class="dot k${tObj.c}" style="display:inline-block;margin-right:8px"></span>${taskName}</span>
+            <span class="track"><i class="k${tObj.c}" style="width:${pct}%"></i></span>
+            <span class="mono muted" style="text-align:right">${count} acts</span>
+          </div>`;
+        }
+      }
+      h += `</div></div>`;
+
+      // Employee breakdown table
+      let staffMap = {};
+      filtered.forEach(ev => {
+        if (!staffMap[ev.person]) staffMap[ev.person] = { key: ev.person_key, count: 0, last: ev.ts };
+        staffMap[ev.person].count++;
+        if (new Date(ev.ts) > new Date(staffMap[ev.person].last)) staffMap[ev.person].last = ev.ts;
+      });
+
+      h += `<div class="panel"><h2>Employee Summary</h2><div class="stack" style="margin-top:12px;">`;
+      if (Object.keys(staffMap).length === 0) {
+        h += `<p class="muted">No staff activity found.</p>`;
+      } else {
+        for (const [name, data] of Object.entries(staffMap)) {
+          h += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--line);">
+            <div><b>${name}</b> <span class="muted">(${data.key})</span></div>
+            <div class="mono">${data.count} actions · Last active: ${new Date(data.last).toLocaleTimeString()}</div>
+          </div>`;
+        }
+      }
+      h += `</div></div>`;
+
+    } else {
+      h += `<div class="panel stack">
+        <h2>Simulate Staff Record</h2>
+        <p class="muted">Quickly push test records to check graphs and time patterns.</p>
+        <div class="row">
+          <div class="field"><label class="label">Staff Name</label><input id="staff-name" value="Blessing Moyo"></div>
+          <div class="field"><label class="label">Staff Key</label><input id="staff-key" value="EMP01"></div>
+          <div class="field"><label class="label">Activity</label><select id="staff-activity">${TASKS.map(t=>`<option>${t.n}</option>`).join('')}</select></div>
+        </div>
+        <div><button class="btn primary" data-act="sendActivity">Send Record to DB</button></div>
+      </div>`;
+    }
+
+    app.innerHTML = h;
+  }
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act], [data-tf]');
+    if (!btn) return;
+    
+    if (btn.hasAttribute('data-act')) {
+      const act = btn.getAttribute('data-act');
+      if (act === 'tab') {
+        currentTab = btn.getAttribute('data-t');
+        render();
+      } else if (act === 'logout') {
+        await supabaseClient.auth.signOut();
+        location.reload();
+      } else if (act === 'sendActivity') {
+        const person = document.getElementById('staff-name').value;
+        const person_key = document.getElementById('staff-key').value;
+        const activity = document.getElementById('staff-activity').value;
+        const ts = new Date().toISOString();
+
+        const { error } = await supabaseClient.from('events').insert([{ person, person_key, activity, ts }]);
+        if (!error) {
+          alert('Activity saved!');
+          loadEvents();
+        } else {
+          alert('Error: ' + error.message);
+        }
+      }
+    } else if (btn.hasAttribute('data-tf')) {
+      timeFrame = btn.getAttribute('data-tf');
+      render();
+    }
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>
